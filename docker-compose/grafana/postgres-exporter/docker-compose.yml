@@ -1,0 +1,63 @@
+# See https://rezakhademix.medium.com/a-complete-guide-to-monitor-postgresql-with-prometheus-and-grafana-5611af229882
+version: "3.9"
+services:
+  postgresql:
+    image: postgres
+    container_name: postgresql1
+    restart: unless-stopped
+    environment:
+      # See https://stackoverflow.com/questions/58258624/initialize-postgres-container-from-docker-compose-file
+      # This optional environment variable is used in conjunction with POSTGRES_PASSWORD to set a user and its password.
+      # This variable will create the specified user with superuser power and a database with the same name.
+      # If it is not specified, then the default user of postgres will be used.
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: db
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d ${POSTGRES_USER} -U ${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      
+  # http://localhost:9090
+  prometheus:
+    image: prom/prometheus
+    container_name: prometheus
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./prometheus:/etc/prometheus
+    command: --config.file=/etc/prometheus/prometheus.yml
+    
+  # http://localhost:9187
+  postgresql-exporter:
+    image: prometheuscommunity/postgres-exporter
+    container_name: postgresql-exporter
+    ports:
+      - "9187:9187"
+    environment:
+      DATA_SOURCE_NAME: "postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgresql1/${POSTGRES_DB}?sslmode=disable"
+    depends_on:
+      prometheus:
+        condition: service_started
+      postgresql:
+        condition: service_healthy
+    restart: unless-stopped
+    
+  # http://localhost:3000
+  grafana:
+    image: grafana/grafana
+    container_name: grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_USER=admin
+    volumes:
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources
+    depends_on:
+      - prometheus
